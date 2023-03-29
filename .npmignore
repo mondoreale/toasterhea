@@ -1,0 +1,8 @@
+.babelrc
+.envrc
+.eslintrc
+.prettier*
+.vscode*
+/*.config.mjs
+/src
+tsconfig.json
