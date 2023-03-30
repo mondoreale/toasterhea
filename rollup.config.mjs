@@ -5,7 +5,7 @@ import babel from '@rollup/plugin-babel'
 function bundle(config) {
     return {
         ...config,
-        external: [/react/],
+        external: [/react/, /eventemitter3/, /lodash/],
     }
 }
 

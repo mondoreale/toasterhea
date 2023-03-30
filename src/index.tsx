@@ -83,7 +83,7 @@ export function useDiscardableEffect(fn?: (discard: () => void | Promise<void>) 
     }, [discard, promise])
 }
 
-interface EntityMetadata<P extends FC = FC<any>> {
+interface Metadata<P extends FC = FC<any>> {
     id: string
     props?: ComponentProps<P>
     component: P
@@ -92,11 +92,6 @@ interface EntityMetadata<P extends FC = FC<any>> {
         SettlerReturnValue<P, 'onReject'> | typeof Reason.Update
     >
     discardDeferral: Deferral
-}
-
-export const Layer = {
-    Modal: 'modals',
-    Toast: 'toasts',
 }
 
 let emitter: EventEmitter | undefined
@@ -119,7 +114,7 @@ export function Container({
 
     containerRef.current.id = id
 
-    const [metadatas, setMetadatas] = useState<Record<string, EntityMetadata>>({})
+    const [metadatas, setMetadatas] = useState<Record<string, Metadata>>({})
 
     useEffect(() => {
         let mounted = true
@@ -129,7 +124,7 @@ export function Container({
         const { id } = container
 
         if (Object.prototype.hasOwnProperty.call(containers, id) && containers[id]) {
-            throw new Error('Container id already used')
+            throw new Error('Container id already taken')
         }
 
         containers[id] = true
@@ -138,7 +133,7 @@ export function Container({
 
         let cache: typeof metadatas = {}
 
-        async function onEvent(metadata: EntityMetadata) {
+        async function onEvent(metadata: Metadata) {
             if (!mounted) {
                 return
             }
@@ -226,7 +221,7 @@ export function Container({
     )
 }
 
-export type SettlerReturnValue<
+type SettlerReturnValue<
     T extends FC,
     K extends 'onResolve' | 'onReject'
 > = ComponentProps<T> extends Partial<Record<K, (value: infer R) => void>> ? R : void
@@ -237,7 +232,7 @@ export interface Toaster<T extends FC<any>> {
 }
 
 export function toaster<T extends FC<any>>(component: T, id: string): Toaster<T> {
-    let metadata: EntityMetadata<T> | undefined
+    let metadata: Metadata<T> | undefined
 
     return {
         async pop(props) {
