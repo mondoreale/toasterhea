@@ -7,6 +7,7 @@ import {
     HTMLAttributes,
     useContext,
     useEffect,
+    useMemo,
     useRef,
     useState,
 } from 'react'
@@ -106,8 +107,6 @@ interface Metadata<P extends FC = FC<any>> {
 
 let emitter: EventEmitter | undefined
 
-const containers: Record<string, true> = {}
-
 function getEmitter(): EventEmitter {
     if (!emitter) {
         emitter = new EventEmitter()
@@ -116,30 +115,17 @@ function getEmitter(): EventEmitter {
     return emitter
 }
 
-export function Container({
-    id,
-    ...props
-}: Omit<HTMLAttributes<HTMLDivElement>, 'id' | 'children'> & { id: string }) {
-    const containerRef = useRef<HTMLDivElement>(document.createElement('div'))
+interface ContainerProps extends Omit<HTMLAttributes<HTMLDivElement>, 'id' | 'children'> {
+    id: string
+}
 
-    containerRef.current.id = id
-
+export function InlineContainer({ id: idProp, ...props }: ContainerProps) {
     const [metadatas, setMetadatas] = useState<Record<string, Metadata>>({})
+
+    const id = useMemo(() => uniqueId(idProp), [idProp])
 
     useEffect(() => {
         let mounted = true
-
-        const { current: container } = containerRef
-
-        const { id } = container
-
-        if (Object.prototype.hasOwnProperty.call(containers, id) && containers[id]) {
-            throw new Error('Container id already taken')
-        }
-
-        containers[id] = true
-
-        document.body.appendChild(container)
 
         let cache: typeof metadatas = {}
 
@@ -178,18 +164,14 @@ export function Container({
             delete cache[metadata.id]
         }
 
-        const en = eventName(id)
+        const en = eventName(idProp)
 
         getEmitter().on(en, onEvent)
 
         return () => {
             mounted = false
 
-            document.body.removeChild(container)
-
             getEmitter().off(en, onEvent)
-
-            delete containers[id]
 
             for (const key in cache) {
                 if (!Object.prototype.hasOwnProperty.call(cache, key)) {
@@ -203,10 +185,10 @@ export function Container({
 
             cache = {}
         }
-    }, [])
+    }, [idProp])
 
-    return createPortal(
-        <div {...props}>
+    return (
+        <div {...props} id={id}>
             {Object.entries(metadatas).map(
                 ([
                     key,
@@ -226,9 +208,34 @@ export function Container({
                     )
                 }
             )}
-        </div>,
-        containerRef.current
+        </div>
     )
+}
+
+export function Container(props: ContainerProps) {
+    const containerRef = useRef(
+        typeof document === 'undefined' ? undefined : document.createElement('div')
+    )
+
+    useEffect(() => {
+        const { current: container } = containerRef
+
+        if (!container) {
+            return () => void 0
+        }
+
+        document.body.appendChild(container)
+
+        return () => {
+            document.body.removeChild(container)
+        }
+    }, [])
+
+    if (containerRef.current) {
+        return createPortal(<InlineContainer {...props} />, containerRef.current)
+    }
+
+    return null
 }
 
 type SettlerReturnValue<
