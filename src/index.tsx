@@ -63,6 +63,8 @@ export function useDiscardableEffect(fn?: (discard: () => void | Promise<void>) 
     const [discard, promise] = useContext(DiscardableContext)
 
     useEffect(() => {
+        let mounted = true
+
         async function innerFn() {
             try {
                 await promise
@@ -70,6 +72,10 @@ export function useDiscardableEffect(fn?: (discard: () => void | Promise<void>) 
                 if (e === Reason.Update) {
                     return
                 }
+            }
+
+            if (!mounted) {
+                return
             }
 
             if (fnRef.current) {
@@ -80,6 +86,10 @@ export function useDiscardableEffect(fn?: (discard: () => void | Promise<void>) 
         }
 
         innerFn()
+
+        return () => {
+            mounted = false
+        }
     }, [discard, promise])
 }
 
