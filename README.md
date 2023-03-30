@@ -23,27 +23,32 @@ Make sure you have them installed, too!
 
 ## Key elements
 
-### `Container(props: { id: string } & …): JSX.Element`
+### `[Inline]Container(props: { id: string } & …): JSX.Element`
 
 It's a React component responsible for rendering toastables.
 
 ```tsx
-import { Container } from 'toasterhea'
+import { Container, InlineContainer } from 'toasterhea'
 
 function App() {
   return (
     <>
       {/* …codecodecode… */}
       <Container id="FOO" />
+      <InlineContainer id="BAR" />
       {/* …codecodecode… */}
     </>
   )
 }
 ```
 
+Regular containers are rendered at the end of `document.body` through React's portals. If you'd like to render yours in a specific place use `InlineContainer` instead.
+
+It may be worth mentioning that you can render multiple containers with the same id. As a result you'll get multiple instances of your toastables. I'm yet to find a good usecase for that, buy yeah, it's possible, even if just for fun.
+
 ### `useDiscardableEffect(fn?: (discard: () => void | Promise<void>) => void): void`
 
-It's a React hook responsible for letting the `Container` know when exacly a toastable can be discarded. Everything you turn into a toast will have to utilize this hook.
+It's a React hook responsible for letting containers know when exacly a toastable can be discarded. Everything you turn into a toast will have to utilize this hook.
 
 Note that although the use of this hook is necessary, the callback is optional. If the callback isn't defined, the library will discard a toastable immediately after its promise is settled.
 
@@ -80,8 +85,8 @@ function FooToThePowerOfBar({ onResolve }: Props) {
 
 ### `toaster<T>(component: T, containerId: string): Toaster<T>`
 
-It turns components into toastables returns two methods:
-1. `async pop(props?: ComponentProps<T>)` – displays the component using given `props`, and
+It turns components into toastables and gives you two methods to control their behaviour:
+1. `async pop(props?: ComponentProps<T>)` – mounts or rerenders the component using given `props`, and
 2. `discard()` which rejects the internal promise.
 
 ```js
