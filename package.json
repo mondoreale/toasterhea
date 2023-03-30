@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Promise-driven toast poppin' library.",
   "main": "index.js",
-  "types": "index.d.ts",
+  "types": "./index.d.ts",
   "type": "module",
   "exports": {
     "import": "./index.js",
