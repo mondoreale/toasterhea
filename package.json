@@ -1,6 +1,6 @@
 {
   "name": "toasterhea",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Promise-driven toast poppin' library.",
   "main": "index.js",
   "types": "./index.d.ts",
