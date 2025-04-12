@@ -61,7 +61,7 @@ interface DisposeDeferrals {
 
 const DisposeDeferralsContext = createContext<DisposeDeferrals | undefined>(undefined)
 
-export function useDisposableEffect(
+export function useDisposeEffect(
     fn?: (dispose: () => void) => void | (() => void),
     deps: unknown[] = []
 ) {
@@ -106,10 +106,6 @@ export function useDisposableEffect(
 
         return () => {
             mounted = false
-
-            deferrals?.disposeBegin.reject()
-
-            deferrals?.disposeFinish.reject()
         }
     }, [deferrals])
 
@@ -124,14 +120,18 @@ interface DisposableMetadata extends Metadata {
     deferrals: DisposeDeferrals
 }
 
-interface ToasterDisposeOptions {
-    immediate?: boolean
+const Gate = {}
+
+function assertGate(value: unknown) {
+    if (value !== Gate) {
+        throw new Error('Use `toastify` to control your toasters.')
+    }
 }
 
 interface Toaster {
     readonly Container: (props: ToasterContainerProps) => JSX.Element
-    readonly set: (key: Key, metadata: Metadata) => void
-    readonly dispose: (key: Key, options?: ToasterDisposeOptions) => void
+    readonly set: (gate: unknown, key: Key, metadata: Metadata) => void
+    readonly dispose: (gate: unknown, key: Key) => void
 }
 
 export function toaster(): Toaster {
@@ -140,7 +140,9 @@ export function toaster(): Toaster {
     const items = new Map<Key, DisposableMetadata>()
 
     return {
-        set(key, metadata) {
+        set(gate, key, metadata) {
+            assertGate(gate)
+
             const item = items.get(key)
 
             if (item) {
@@ -165,23 +167,21 @@ export function toaster(): Toaster {
                             deferrals.disposeBegin.promise,
                             deferrals.disposeFinish.promise,
                         ])
-                    } finally {
+
                         items.delete(key)
 
                         emitter.emit('update')
-                    }
+                    } catch (_) {}
                 })()
             }
 
             emitter.emit('update')
         },
 
-        dispose(key, options = {}) {
-            items.get(key)?.deferrals.disposeBegin.resolve()
+        dispose(gate, key) {
+            assertGate(gate)
 
-            if (options.immediate) {
-                items.get(key)?.deferrals.disposeFinish.resolve()
-            }
+            items.get(key)?.deferrals.disposeBegin.resolve()
         },
 
         Container({ inline = false, ...containerProps }) {
@@ -211,6 +211,8 @@ export function toaster(): Toaster {
 
             useEffect(() => {
                 if (inline) {
+                    setContainer(undefined)
+
                     return () => {}
                 }
 
@@ -295,7 +297,7 @@ export function toastify<T>(component: T, toaster: Toaster) {
             key = { value: lastToastableKey }
         }
 
-        toaster.set(key, {
+        toaster.set(Gate, key, {
             component: component as FC<unknown>,
             props: {
                 ...props,
@@ -315,7 +317,7 @@ export function toastify<T>(component: T, toaster: Toaster) {
                 }
             }
         } finally {
-            toaster.dispose(key)
+            toaster.dispose(Gate, key)
 
             key = undefined
         }
