@@ -1,6 +1,6 @@
 # toasterhea 🍞
 
-Promise-driven toast-poppin' library.
+Promises with UI.
 
 ## Installation
 
@@ -14,162 +14,66 @@ This package relies on the following dependencies:
 
 ```
 eventemitter3 >= 4
-lodash >= 0.1.0
-react >= 16.8 <= 18
-react-dom >= 16.8 <= 18
+react >= 16.8
+react-dom >= 16.8
 ```
 
 Make sure you have them installed, too!
 
-## Key elements
-
-### `[Inline]Container(props: { id: string } & …): JSX.Element`
-
-It's a React component responsible for rendering toastables.
+## Usage
 
 ```tsx
-import { Container, InlineContainer } from 'toasterhea'
+import { toaster, toastify } from 'toasterhea'
 
 function App() {
-  return (
-    <>
-      {/* …codecodecode… */}
-      <Container id="FOO" />
-      <InlineContainer id="BAR" />
-      {/* …codecodecode… */}
+    return <>
+        <button
+            type="button"
+            onClick={async () => {
+                try {
+                    if (await confirm()) {
+                        // Do something!
+                    }
+                } catch (_) {}
+            }}
+        >
+            Do this and that
+        </button>
+        <Popup.Component />
     </>
-  )
 }
+
+function ConfirmationPopup({
+    message = 'What say you?',
+    resolve
+}: { message?: string, resolve(value: boolean): void }) {
+    return <div>
+        {message}
+        <button type="button" onClick={() => { resolve(false) }}>
+            Nah, I'd rather go back…
+        </button>
+        <button type="button" onClick={() => { resolve(true) }}>
+            Proceed!
+        </button>
+    </div>
+}
+
+const Popup = toaster()
+
+const confirm = toastify(ConfirmationPopup, Popup).pop
 ```
 
-Regular containers are rendered at the end of `document.body` through React's portals. If you'd like to render yours in a specific place use `InlineContainer` instead.
+With this
 
-It may be worth mentioning that you can render multiple containers with the same id. As a result you'll get multiple instances of your toastables. I'm yet to find a good usecase for that, buy yeah, it's possible, even if just for fun.
+- `confirm` can be used anywhere now, even outside of the react code.
+- You can use such components to block flow (`pop` is asynchronous).
 
-### `useDiscardableEffect(fn?: (discard: () => void | Promise<void>) => void): void`
+### Use cases
 
-It's a React hook responsible for letting containers know when exacly a toastable can be discarded. Everything you turn into a toast will have to utilize this hook.
+- Modal dialogs
+- Popups of any sort (like dropdowns or drawers)
+- Toast, alerts, info boxes
 
-Note that although the use of this hook is necessary, the callback is optional. If the callback isn't defined, the library will discard a toastable immediately after its promise is settled.
+### No styling and pre-crisped out-of-the-box toastables? It's bs!
 
-```tsx
-import { useDiscardableEffect } from 'toasterhea'
-
-interface Props {
-  onResolve?: () => void
-}
-
-function FooToThePowerOfBar({ onResolve }: Props) {
-  useDiscardableEffect((discard) => {
-    // Discard the component after 10s.
-    setTimeout(() => void discard(), 10000)
-  })
-
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        /**
-         * Calling `onResolve` resolves the underlying promise. The component will remain
-         * mounted for another 10s (see above). UIs can be disabled here, and/or
-         * animations triggered.
-         */
-        onResolve?.()
-      }}
-    >
-      Let's go!
-    </button>
-  )
-}
-```
-
-### `toaster<T>(component: T, containerId: string): Toaster<T>`
-
-It turns components into toastables and gives you two methods to control their behaviour:
-1. `async pop(props?: ComponentProps<T>)` – mounts or rerenders the component using given `props`, and
-2. `discard()` which rejects the internal promise.
-
-```js
-import { toaster, Toaster } from 'toasterhea'
-
-function MasterOfAllFoos() {
-  const fooRef = useRef(toaster(FooToThePowerOfBar, "FOO"))
-
-  return (
-    <>
-      <button
-        type="button"
-        onClick={async () => {
-          try {
-            await fooRef.current.pop()
-          } catch (e) {
-            /**
-             * `FooToThePowerOfBar` does not reject explicitly. There's no UI for it. Few
-             * things can cause a rejection, still, though. See `Reason` section for details.
-             */
-            console.warn('…and then this happened!', e)
-          }
-        }}
-      >
-        Let's foo that bar!
-      </button>
-      <button
-        type="button"
-        onClick={() => void fooRef.current.discard()}
-      >
-        Nah
-      </button>
-    </>
-  )
-}
-```
-
-### `Reason`
-
-Some rejection scenarios are predefined and either are used internally or can be used from the outside to control the flow.
-
-#### `Reason.Update`
-
-Happens when the user calls `pop` on a toast that's already "popped" (got displayed). Any piece of code waiting for the previous call to `pop` will receive a rejection.
-
-#### `Reason.Unmount`
-
-Happens when the `Container` itself gets unmounted. The library rejects all outstanding promises and removes their associated DOM elements.
-
-#### `Reason.Host`
-
-Happens when `Toaster<T>.discard()` is called.
-
-An example of how you can utilize them is shown below.
-
-```js
-import { Reason } from 'toasterhea'
-
-try {
-  // pop!
-} catch (e) {
-  switch (e) {
-    case Reason.Update:
-      console.info('Your toastable got updated!')
-      break
-    case Reason.Unmount:
-      console.info('Your toastable got unmounted along with the entire `Container`.')
-      break
-    case Reason.Host:
-      console.info('Your toastable got interrupted from the outside (someone called its `discard`).')
-      break
-    default:
-      throw e
-  }
-}
-```
-
-And, naturally, you can define and use your own rejection reasons.
-
-## Examples
-
-### Toast
-
-### Alert
-
-### Modal dialog
+No?! There's no styling involved to keep your hands free to do as your heart desires! Anything you'd like to "toast" you build yourself. `toasterhea` is just the engine and it's good. You wouldn't like my styles anyways.
