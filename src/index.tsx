@@ -11,11 +11,19 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 
-export const RejectionReason = {
-    Update: Symbol('update'),
-    Unmount: Symbol('unmount'),
-    Host: Symbol('host'),
+export class ToastCancelled extends Error {
+    constructor() {
+        super('Toast cancelled by host')
+
+        this.name = 'ToastCancelled'
+    }
 }
+
+export function isToastCancelled(e: unknown): e is ToastCancelled {
+    return e instanceof ToastCancelled
+}
+
+const UpdateSignal = Symbol('UpdateSignal')
 
 export interface Deferral<T = void> {
     resolve(value: T): void
@@ -287,7 +295,7 @@ export function toastify<T>(component: T, toaster: Toaster) {
     async function pop(...args: Args): Promise<ResolveType> {
         const [props = {}] = args
 
-        deferral?.reject(RejectionReason.Update)
+        deferral?.reject(UpdateSignal)
 
         deferral = defer()
 
@@ -311,7 +319,7 @@ export function toastify<T>(component: T, toaster: Toaster) {
                 try {
                     return await deferral.promise
                 } catch (e) {
-                    if (e !== RejectionReason.Update) {
+                    if (e !== UpdateSignal) {
                         throw e
                     }
                 }
@@ -326,7 +334,7 @@ export function toastify<T>(component: T, toaster: Toaster) {
     }
 
     function discard() {
-        deferral?.reject(RejectionReason.Host)
+        deferral?.reject(new ToastCancelled())
     }
 
     return {
