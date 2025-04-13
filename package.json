@@ -47,7 +47,7 @@
   },
   "peerDependencies": {
     "eventemitter3": ">= 4",
-    "react": ">= 16.8 <= 18",
-    "react-dom": ">= 16.8 <= 18"
+    "react": ">= 16.8",
+    "react-dom": ">= 16.8"
   }
 }
