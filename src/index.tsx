@@ -11,6 +11,9 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 
+/**
+ * Public rejection class that signals the user cancelled the toast.
+ */
 export class ToastCancelled extends Error {
     constructor() {
         super('Toast cancelled by host')
@@ -19,19 +22,32 @@ export class ToastCancelled extends Error {
     }
 }
 
+/**
+ * Type guard for detecting ToastCancelled rejection.
+ */
 export function isToastCancelled(e: unknown): e is ToastCancelled {
     return e instanceof ToastCancelled
 }
 
+// Internal signal used to trigger "soft" toast updates
 const UpdateSignal = Symbol('UpdateSignal')
 
+/**
+ * Represents a deferred promise along with resolve/reject and settled state.
+ */
 export interface Deferral<T = void> {
-    resolve(value: T): void
-    reject(reason?: unknown): void
-    promise: Promise<T>
+    readonly resolve: (value: T) => void
+    readonly reject: (reason?: unknown) => void
+    readonly promise: Promise<T>
+    readonly settled: boolean
 }
 
+/**
+ * Creates a deferred promise with tracking for whether it has settled.
+ */
 export function defer<T = void>(): Deferral<T> {
+    let settled = false
+
     let rs: Deferral<T>['resolve'] = () => {
         // This will get overwritten.
     }
@@ -41,12 +57,31 @@ export function defer<T = void>(): Deferral<T> {
     }
 
     const promise = new Promise<T>((resolve, reject) => {
-        rs = resolve
+        rs = (value) => {
+            if (!settled) {
+                settled = true
 
-        rj = reject
+                resolve(value)
+            }
+        }
+
+        rj = (reason) => {
+            if (!settled) {
+                settled = true
+
+                reject(reason)
+            }
+        }
     })
 
-    return { resolve: rs, reject: rj, promise }
+    return {
+        resolve: rs,
+        reject: rj,
+        promise,
+        get settled() {
+            return settled
+        },
+    }
 }
 
 interface ToasterContainerProps extends HTMLAttributes<HTMLDivElement> {
@@ -69,6 +104,10 @@ interface DisposeDeferrals {
 
 const DisposeDeferralsContext = createContext<DisposeDeferrals | undefined>(undefined)
 
+/**
+ * Hook for registering a disposal effect that runs before a toast is removed.
+ * Supports async cleanup via `fn()` callback.
+ */
 export function useDisposeEffect(
     fn?: (dispose: () => void) => void | (() => void),
     deps: unknown[] = []
@@ -128,6 +167,9 @@ interface DisposableMetadata extends Metadata {
     deferrals: DisposeDeferrals
 }
 
+/**
+ * Private access control token used to prevent external usage of `set` and `dispose`.
+ */
 const Gate = {}
 
 function assertGate(value: unknown) {
@@ -138,16 +180,31 @@ function assertGate(value: unknown) {
 
 interface Toaster {
     readonly Container: (props: ToasterContainerProps) => JSX.Element
+
     readonly set: (gate: unknown, key: Key, metadata: Metadata) => void
+
     readonly dispose: (gate: unknown, key: Key) => void
+
+    readonly on: (eventName: 'update', listener: () => void) => void
+
+    readonly off: (eventName: 'update', listener: () => void) => void
+
+    readonly hasActive: (component?: unknown) => boolean
 }
 
+/**
+ * Creates a toaster instance that renders toast components.
+ * Manages internal state and cleanup lifecycle.
+ */
 export function toaster(): Toaster {
     const emitter = new EventEmitter<'update'>()
 
     const items = new Map<Key, DisposableMetadata>()
 
     return {
+        /**
+         * Adds or updates a toast by key. Creates deferral lifecycle if new.
+         */
         set(gate, key, metadata) {
             assertGate(gate)
 
@@ -186,12 +243,19 @@ export function toaster(): Toaster {
             emitter.emit('update')
         },
 
+        /**
+         * Signals the toast to begin its async disposal process.
+         */
         dispose(gate, key) {
             assertGate(gate)
 
             items.get(key)?.deferrals.disposeBegin.resolve()
         },
 
+        /**
+         * React component that renders all active toasts.
+         * Can render inline or inside a portal.
+         */
         Container({ inline = false, ...containerProps }) {
             const itemsRef = useRef(items)
 
@@ -264,11 +328,39 @@ export function toaster(): Toaster {
                 container
             )
         },
+
+        /**
+         * Returns whether any toast is currently active (optionally filtered by component).
+         */
+        hasActive(component) {
+            for (const item of items.values()) {
+                if (component != null && item.component !== component) {
+                    continue
+                }
+
+                if (!item.deferrals.disposeBegin.settled) {
+                    return true
+                }
+            }
+
+            return false
+        },
+
+        on(eventName, listener) {
+            emitter.on(eventName, listener)
+        },
+
+        off(eventName, listener) {
+            emitter.off(eventName, listener)
+        },
     }
 }
 
 let lastToastableKey = 0
 
+/**
+ * Wraps a component into a toastable interface: `pop()` to show, `discard()` to cancel.
+ */
 export function toastify<T>(component: T, toaster: Toaster) {
     type Props = T extends FC<infer R> ? R : never
 
@@ -292,6 +384,9 @@ export function toastify<T>(component: T, toaster: Toaster) {
 
     let key: Key | undefined
 
+    /**
+     * Displays the component, returns a promise that resolves/rejects based on user interaction.
+     */
     async function pop(...args: Args): Promise<ResolveType> {
         const [props = {}] = args
 
@@ -333,6 +428,9 @@ export function toastify<T>(component: T, toaster: Toaster) {
         throw 'The impossible happened… Quick, make a wish!'
     }
 
+    /**
+     * Cancels the toast explicitly by rejecting the promise with a ToastCancelled error.
+     */
     function discard() {
         deferral?.reject(new ToastCancelled())
     }
