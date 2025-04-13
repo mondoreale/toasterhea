@@ -2,78 +2,206 @@
 
 Promises with UI.
 
+
+## About
+
+**toasterhea** lets you render React components as toast-like UI elements that behave like Promises.
+
+This makes it easy to implement async flows such as modals, confirmation dialogs, or multi-step wizards — all using your own components and styling.
+
+---
+
+## Why
+
+React doesn’t have a built-in way to tie UI directly to promise resolution. If you want something like:
+
+```ts
+const confirmed = await confirmDialog("Are you sure?")
+```
+
+...you’re left building your own state machine. `toasterhea` handles that for you, using components as promise interfaces.
+
+---
+
 ## Installation
 
 ```bash
-npm i toasterhea
+npm install toasterhea
 ```
 
-### Peer dependencies
+---
 
-This package relies on the following dependencies:
-
-```
-eventemitter3 >= 4
-react >= 16.8
-react-dom >= 16.8
-```
-
-Make sure you have them installed, too!
-
-## Usage
+## Example
 
 ```tsx
 import { toaster, toastify } from 'toasterhea'
 
-function App() {
-    return <>
-        <button
-            type="button"
-            onClick={async () => {
-                try {
-                    if (await confirm()) {
-                        // Do something!
-                    }
-                } catch (_) {}
-            }}
-        >
-            Do this and that
-        </button>
-        <Popup.Component />
-    </>
+// Step 1: Create a component that accepts resolve/reject
+function Confirm({ resolve }: { resolve: (value: boolean) => void }) {
+    return (
+        <div className="toast">
+            <p>Are you sure?</p>
+            <button
+                onClick={() => {
+                    resolve(true)
+                }}
+            >
+                Yes
+            </button>
+            <button
+                onClick={() => {
+                    resolve(false)
+                }}
+            >
+                Cancel
+            </button>
+        </div>
+    )
 }
 
-function ConfirmationPopup({
-    message = 'What say you?',
-    resolve
-}: { message?: string, resolve(value: boolean): void }) {
-    return <div>
-        {message}
-        <button type="button" onClick={() => { resolve(false) }}>
-            Nah, I'd rather go back…
-        </button>
-        <button type="button" onClick={() => { resolve(true) }}>
-            Proceed!
-        </button>
-    </div>
-}
+// Step 2: Wrap it with toastify
+const confirm = toastify(Confirm, toaster()).pop
 
-const Popup = toaster()
-
-const confirm = toastify(ConfirmationPopup, Popup).pop
+// Step 3: Use it like a promise. Anywhere!
+const result = await confirm()
 ```
 
-With this
+---
 
-- `confirm` can be used anywhere now, even outside of the react code.
-- You can use such components to block flow (`pop` is asynchronous).
+## Rendering
 
-### Use cases
+Render the toast container in your app:
 
-- Modal dialogs
-- Popups of any sort (like dropdowns or drawers)
-- Toast, alerts, info boxes
+```tsx
+const Foo = toaster()
 
-### No styling and pre-crisped out-of-the-box toastables? It's bs!
+function App() {
+    return (
+        <>
+            <Foo.Container />
+        </>
+    )
+}
+```
 
-No?! There's no styling involved to keep your hands free to do as your heart desires! Anything you'd like to "toast" you build yourself. `toasterhea` is just the engine and it's good. You wouldn't like my styles anyways.
+The container supports `inline` rendering:
+
+```tsx
+<Foo.Container inline />
+```
+
+---
+
+## Toast Component Requirements
+
+Your toastable component must:
+
+- Be a function component
+- Accept `resolve(value?)` and/or `reject(reason?)` props
+- Call one of them to settle
+
+Additional props can be passed through `.pop(props)`.
+
+```tsx
+function ExampleToast({
+    resolve,
+    reject,
+    name,
+}: {
+    resolve: (result: string) => void
+    reject: () => void
+    name: string
+}) {
+    /* ... */
+}
+```
+
+---
+
+## API
+
+### `toaster()`
+
+Creates a new toaster instance.
+
+```ts
+const t = toaster()
+```
+
+Returns:
+
+- `Container`: React component to render active toasts
+- `set()`: (internal) programmatically control state
+- `dispose()`: (internal) begin async cleanup
+- `on()`, `off()`: listen to update events
+- `hasActive(component?)`: check if any toast is active
+
+---
+
+### `toastify(component, toaster)`
+
+Wraps a component and returns `{ pop, discard }`:
+
+- `pop(props?)`: shows the component and returns a promise
+- `discard()`: programmatically cancel the toast
+
+The props passed to `pop()` will be merged with `{ resolve, reject }`.
+
+---
+
+### `useDisposeEffect`
+
+Allows components to delay disposal for animation or async work:
+
+```tsx
+useDisposeEffect((finish) => {
+    animateOut().then(finish)
+})
+```
+
+Must call `finish()` when done.
+
+---
+
+### `ToastCancelled`
+
+An error class representing user cancellation. Useful for flow control.
+
+```ts
+import { isToastCancelled } from 'toasterhea'
+
+try {
+    await toast.pop()
+} catch (e) {
+    if (isToastCancelled(e)) {
+        // user cancelled
+    }
+}
+```
+
+---
+
+## Wizard Pattern Example
+
+Chain multiple steps:
+
+```tsx
+const { pop: getName } = toastify(NameStep, t)
+const { pop: getAvatar } = toastify(AvatarStep, t)
+
+try {
+    const name = await getName()
+    const avatar = await getAvatar()
+    // done
+} catch (e) {
+    if (isToastCancelled(e)) {
+        // user bailed
+    }
+}
+```
+
+---
+
+## License
+
+MIT. Use responsibly. Don’t forget to resolve your promises.
