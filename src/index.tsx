@@ -1,305 +1,454 @@
 import EventEmitter from 'eventemitter3'
-import uniqueId from 'lodash/uniqueId'
 import {
-    ComponentProps,
     createContext,
-    FC,
-    HTMLAttributes,
+    type FC,
+    type HTMLAttributes,
+    useCallback,
     useContext,
     useEffect,
-    useMemo,
     useRef,
     useState,
 } from 'react'
 import { createPortal } from 'react-dom'
 
-export interface Deferral<T = void, R = unknown> {
-    resolve: (value: T | PromiseLike<T>) => void
-    reject: (reason?: R) => void
-    promise: Promise<T>
+/**
+ * Public rejection class that signals the user cancelled the toast.
+ */
+export class ToastCancelled extends Error {
+    constructor() {
+        super('Toast cancelled by host')
+
+        this.name = 'ToastCancelled'
+    }
 }
 
-export function defer<T = void, R = unknown>(): Deferral<T, R> {
-    let resolve: (value: T | PromiseLike<T>) => void = () => {
+/**
+ * Type guard for detecting ToastCancelled rejection.
+ */
+export function isToastCancelled(e: unknown): e is ToastCancelled {
+    return e instanceof ToastCancelled
+}
+
+// Internal signal used to trigger "soft" toast updates
+const UpdateSignal = Symbol('UpdateSignal')
+
+/**
+ * Represents a deferred promise along with resolve/reject and settled state.
+ */
+export interface Deferral<T = void> {
+    readonly resolve: (value: T) => void
+    readonly reject: (reason?: unknown) => void
+    readonly promise: Promise<T>
+    readonly settled: boolean
+}
+
+/**
+ * Creates a deferred promise with tracking for whether it has settled.
+ */
+export function defer<T = void>(): Deferral<T> {
+    let settled = false
+
+    let rs: Deferral<T>['resolve'] = () => {
         // This will get overwritten.
     }
 
-    let reject: (reason?: R) => void = () => {
+    let rj: Deferral<T>['reject'] = () => {
         // This will get overwritten.
     }
 
-    const promise = new Promise<T>((...args) => void ([resolve, reject] = args))
+    const promise = new Promise<T>((resolve, reject) => {
+        rs = (value) => {
+            if (!settled) {
+                settled = true
+
+                resolve(value)
+            }
+        }
+
+        rj = (reason) => {
+            if (!settled) {
+                settled = true
+
+                reject(reason)
+            }
+        }
+    })
 
     return {
+        resolve: rs,
+        reject: rj,
         promise,
-        resolve,
-        reject,
+        get settled() {
+            return settled
+        },
     }
 }
 
-export const Reason = {
-    Update: Symbol('update'),
-    Unmount: Symbol('unmount'),
-    Host: Symbol('host'),
+interface ToasterContainerProps extends HTMLAttributes<HTMLDivElement> {
+    inline?: boolean
 }
 
-function eventName(containerId: string) {
-    return `toasterhea:${containerId}`
+interface Metadata {
+    component: FC<unknown>
+    props: Record<never, never>
 }
 
-const DiscardableContext = createContext<[() => void, Promise<unknown>]>([
-    () => {
-        // Do nothing
-    },
-    Promise.resolve(),
-])
+interface Key {
+    value: number
+}
 
-export function useDiscardableEffect(fn?: (discard: () => void | Promise<void>) => void) {
+interface DisposeDeferrals {
+    disposeBegin: Deferral
+    disposeFinish: Deferral
+}
+
+const DisposeDeferralsContext = createContext<DisposeDeferrals | undefined>(undefined)
+
+/**
+ * Hook for registering a disposal effect that runs before a toast is removed.
+ * Supports async cleanup via `fn()` callback.
+ */
+export function useDisposeEffect(
+    fn?: (dispose: () => void) => void | (() => void),
+    deps: unknown[] = []
+) {
+    const deferrals = useContext(DisposeDeferralsContext)
+
+    const [isDisposing, setIsDisposing] = useState(false)
+
     const fnRef = useRef(fn)
 
-    useEffect(() => {
+    if (fnRef.current !== fn) {
         fnRef.current = fn
-    }, [fn])
-
-    const [discard, promise] = useContext(DiscardableContext)
-
-    useEffect(() => {
-        let mounted = true
-
-        async function innerFn() {
-            try {
-                await promise
-            } catch (e) {
-                if (e === Reason.Update) {
-                    return
-                }
-            }
-
-            if (!mounted) {
-                return
-            }
-
-            if (fnRef.current) {
-                return void fnRef.current(discard)
-            }
-
-            discard()
-        }
-
-        innerFn()
-
-        return () => {
-            mounted = false
-        }
-    }, [discard, promise])
-}
-
-interface Metadata<P extends FC = FC<any>> {
-    id: string
-    props?: ComponentProps<P>
-    component: P
-    deferral: Deferral<
-        SettlerReturnValue<P, 'onResolve'>,
-        SettlerReturnValue<P, 'onReject'> | typeof Reason.Update
-    >
-    discardDeferral: Deferral
-}
-
-let emitter: EventEmitter | undefined
-
-function getEmitter(): EventEmitter {
-    if (!emitter) {
-        emitter = new EventEmitter()
     }
 
-    return emitter
-}
+    const finish = deferrals?.disposeFinish.resolve
 
-interface ContainerProps extends Omit<HTMLAttributes<HTMLDivElement>, 'id' | 'children'> {
-    id: string
-}
+    const callback = useCallback(() => {
+        if (!finish) {
+            return
+        }
 
-export function InlineContainer({ id: idProp, ...props }: ContainerProps) {
-    const [metadatas, setMetadatas] = useState<Record<string, Metadata>>({})
+        if (fnRef.current) {
+            return fnRef.current(finish)
+        }
 
-    const id = useMemo(() => uniqueId(idProp), [idProp])
+        finish()
+    }, [finish, ...deps])
 
     useEffect(() => {
         let mounted = true
 
-        let cache: typeof metadatas = {}
-
-        async function onEvent(metadata: Metadata) {
-            if (!mounted) {
-                return
-            }
-
-            setMetadatas((all) => ({
-                ...all,
-                [metadata.id]: metadata,
-            }))
-
-            cache[metadata.id] = metadata
-
+        void (async () => {
             try {
-                await metadata.deferral.promise
-            } catch (e) {
-                if (e === Reason.Update) {
-                    return
+                await deferrals?.disposeBegin.promise
+
+                if (mounted) {
+                    setIsDisposing(true)
                 }
+            } catch (_) {
+                // Ignore.
             }
-
-            try {
-                await metadata.discardDeferral.promise
-            } catch (e) {
-                // Do nothing.
-            }
-
-            if (!mounted) {
-                return
-            }
-
-            setMetadatas(({ [metadata.id]: omit, ...newMetadatas }) => newMetadatas)
-
-            delete cache[metadata.id]
-        }
-
-        const en = eventName(idProp)
-
-        getEmitter().on(en, onEvent)
+        })()
 
         return () => {
             mounted = false
+        }
+    }, [deferrals])
 
-            getEmitter().off(en, onEvent)
+    useEffect(() => {
+        if (isDisposing) {
+            return callback()
+        }
+    }, [isDisposing, callback])
+}
 
-            for (const key in cache) {
-                if (!Object.prototype.hasOwnProperty.call(cache, key)) {
+interface DisposableMetadata extends Metadata {
+    deferrals: DisposeDeferrals
+}
+
+/**
+ * Private access control token used to prevent external usage of `set` and `dispose`.
+ */
+const Gate = {}
+
+function assertGate(value: unknown) {
+    if (value !== Gate) {
+        throw new Error('Use `toastify` to control your toasters.')
+    }
+}
+
+interface Toaster {
+    readonly Container: (props: ToasterContainerProps) => JSX.Element
+
+    readonly set: (gate: unknown, key: Key, metadata: Metadata) => void
+
+    readonly dispose: (gate: unknown, key: Key) => void
+
+    readonly on: (eventName: 'update', listener: () => void) => void
+
+    readonly off: (eventName: 'update', listener: () => void) => void
+
+    readonly hasActive: (component?: unknown) => boolean
+}
+
+/**
+ * Creates a toaster instance that renders toast components.
+ * Manages internal state and cleanup lifecycle.
+ */
+export function toaster(): Toaster {
+    const emitter = new EventEmitter<'update'>()
+
+    const items = new Map<Key, DisposableMetadata>()
+
+    return {
+        /**
+         * Adds or updates a toast by key. Creates deferral lifecycle if new.
+         */
+        set(gate, key, metadata) {
+            assertGate(gate)
+
+            const item = items.get(key)
+
+            if (item) {
+                items.set(key, {
+                    ...item,
+                    ...metadata,
+                })
+            } else {
+                const deferrals = {
+                    disposeBegin: defer(),
+                    disposeFinish: defer(),
+                }
+
+                items.set(key, {
+                    ...metadata,
+                    deferrals,
+                })
+
+                void (async () => {
+                    try {
+                        await Promise.allSettled([
+                            deferrals.disposeBegin.promise,
+                            deferrals.disposeFinish.promise,
+                        ])
+
+                        items.delete(key)
+
+                        emitter.emit('update')
+                    } catch (_) {}
+                })()
+            }
+
+            emitter.emit('update')
+        },
+
+        /**
+         * Signals the toast to begin its async disposal process.
+         */
+        dispose(gate, key) {
+            assertGate(gate)
+
+            items.get(key)?.deferrals.disposeBegin.resolve()
+        },
+
+        /**
+         * React component that renders all active toasts.
+         * Can render inline or inside a portal.
+         */
+        Container({ inline = false, ...containerProps }) {
+            const itemsRef = useRef(items)
+
+            const emitterRef = useRef(emitter)
+
+            const [container, setContainer] = useState<HTMLDivElement>()
+
+            const [entries, setEntries] = useState<[key: Key, metadata: DisposableMetadata][]>([])
+
+            useEffect(() => {
+                function onUpdate() {
+                    setEntries([...itemsRef.current.entries()])
+                }
+
+                onUpdate()
+
+                const { current: emitter } = emitterRef
+
+                emitter.on('update', onUpdate)
+
+                return () => {
+                    emitter.off('update', onUpdate)
+                }
+            }, [])
+
+            useEffect(() => {
+                if (inline) {
+                    setContainer(undefined)
+
+                    return () => {}
+                }
+
+                const div = document.createElement('div')
+
+                div.className = 'hi_from_toasterhea'
+
+                document.body.appendChild(div)
+
+                setContainer(div)
+
+                return () => {
+                    document.body.removeChild(div)
+                }
+            }, [inline])
+
+            if (inline) {
+                return (
+                    <div {...containerProps}>
+                        {entries.map(([{ value: key }, { component: C, props, deferrals }]) => (
+                            <DisposeDeferralsContext.Provider key={key} value={deferrals}>
+                                <C {...props} />
+                            </DisposeDeferralsContext.Provider>
+                        ))}
+                    </div>
+                )
+            }
+
+            if (!container) {
+                return <></>
+            }
+
+            return createPortal(
+                <div {...containerProps}>
+                    {entries.map(([{ value: key }, { component: C, props, deferrals }]) => (
+                        <DisposeDeferralsContext.Provider key={key} value={deferrals}>
+                            <C {...props} />
+                        </DisposeDeferralsContext.Provider>
+                    ))}
+                </div>,
+                container
+            )
+        },
+
+        /**
+         * Returns whether any toast is currently active (optionally filtered by component).
+         */
+        hasActive(component) {
+            for (const item of items.values()) {
+                if (component != null && item.component !== component) {
                     continue
                 }
 
-                cache[key].deferral.reject(Reason.Unmount)
-
-                cache[key].discardDeferral.reject()
+                if (!item.deferrals.disposeBegin.settled) {
+                    return true
+                }
             }
 
-            cache = {}
-        }
-    }, [idProp])
+            return false
+        },
 
-    return (
-        <div {...props} id={id}>
-            {Object.entries(metadatas).map(
-                ([
-                    key,
-                    {
-                        component: C,
-                        props: innerProps,
-                        deferral: { resolve, reject, promise },
-                        discardDeferral: { resolve: discard },
-                    },
-                ]) => {
-                    const { onResolve: omit0, onReject: omit1, ...rest } = (innerProps || {}) as any
+        on(eventName, listener) {
+            emitter.on(eventName, listener)
+        },
 
-                    return (
-                        <DiscardableContext.Provider key={key} value={[discard, promise]}>
-                            <C {...rest} onResolve={resolve} onReject={reject} />
-                        </DiscardableContext.Provider>
-                    )
-                }
-            )}
-        </div>
-    )
+        off(eventName, listener) {
+            emitter.off(eventName, listener)
+        },
+    }
 }
 
-export function Container(props: ContainerProps) {
-    const containerRef = useRef(
-        typeof document === 'undefined' ? undefined : document.createElement('div')
-    )
+let lastToastableKey = 0
 
-    useEffect(() => {
-        const { current: container } = containerRef
+/**
+ * Wraps a component into a toastable interface: `pop()` to show, `discard()` to cancel.
+ */
+export function toastify<T>(component: T, toaster: Toaster) {
+    type Props = T extends FC<infer R> ? R : never
 
-        if (!container) {
-            return () => void 0
+    type OwnProps = Prettify<Omit<Props, 'resolve' | 'reject'>>
+
+    type ResolveType = Props extends { resolve: (...args: infer A) => void }
+        ? [] extends A
+            ? void
+            : A extends [infer R, ...unknown[]]
+            ? R
+            : void
+        : void
+
+    type Args = IsStrictlyEmpty<OwnProps> extends true
+        ? []
+        : IsAllOptional<OwnProps> extends true
+        ? [props?: OwnProps]
+        : [props: OwnProps]
+
+    let deferral: Deferral<ResolveType> | undefined
+
+    let key: Key | undefined
+
+    /**
+     * Displays the component, returns a promise that resolves/rejects based on user interaction.
+     */
+    async function pop(...args: Args): Promise<ResolveType> {
+        const [props = {}] = args
+
+        deferral?.reject(UpdateSignal)
+
+        deferral = defer()
+
+        if (!key) {
+            lastToastableKey += 1
+
+            key = { value: lastToastableKey }
         }
 
-        document.body.appendChild(container)
+        toaster.set(Gate, key, {
+            component: component as FC<unknown>,
+            props: {
+                ...props,
+                resolve: deferral.resolve,
+                reject: deferral.reject,
+            },
+        })
 
-        return () => {
-            document.body.removeChild(container)
+        try {
+            while (1) {
+                try {
+                    return await deferral.promise
+                } catch (e) {
+                    if (e !== UpdateSignal) {
+                        throw e
+                    }
+                }
+            }
+        } finally {
+            toaster.dispose(Gate, key)
+
+            key = undefined
         }
-    }, [])
 
-    if (containerRef.current) {
-        return createPortal(<InlineContainer {...props} />, containerRef.current)
+        throw 'The impossible happened… Quick, make a wish!'
     }
 
-    return null
-}
-
-type SettlerReturnValue<
-    T extends FC,
-    K extends 'onResolve' | 'onReject'
-> = ComponentProps<T> extends Partial<Record<K, (value: infer R) => void>> ? R : void
-
-export interface Toaster<T extends FC<any>> {
-    pop: (props?: ComponentProps<T>) => Promise<SettlerReturnValue<T, 'onResolve'>>
-    discard: () => void
-}
-
-export function toaster<T extends FC<any>>(component: T, id: string): Toaster<T> {
-    let metadata: Metadata<T> | undefined
+    /**
+     * Cancels the toast explicitly by rejecting the promise with a ToastCancelled error.
+     */
+    function discard() {
+        deferral?.reject(new ToastCancelled())
+    }
 
     return {
-        async pop(props) {
-            if (metadata) {
-                try {
-                    metadata.deferral.reject(Reason.Update)
-
-                    await metadata.deferral.promise
-                } catch (e) {
-                    // Do nothing.
-                }
-            }
-
-            metadata = {
-                id: metadata?.id || uniqueId(),
-                props,
-                component,
-                deferral: defer(),
-                discardDeferral: defer(),
-            }
-
-            getEmitter().emit(eventName(id), metadata)
-
-            let reset = false
-
-            try {
-                const result = (await metadata.deferral.promise) as SettlerReturnValue<
-                    T,
-                    'onResolve'
-                >
-
-                props?.onResolve?.(result)
-
-                reset = true
-
-                return result
-            } catch (e) {
-                props?.onReject?.(e)
-
-                reset = e !== Reason.Update
-
-                throw e
-            } finally {
-                if (reset) {
-                    metadata = undefined
-                }
-            }
-        },
-        discard() {
-            metadata?.deferral.reject(Reason.Host)
-        },
+        pop,
+        discard,
     }
 }
+
+type Prettify<T> = {
+    [K in keyof T]: T[K]
+} & {}
+
+type RequiredKeys<T> = {
+    [K in keyof T]-?: {} extends Pick<T, K> ? never : K
+}[keyof T]
+
+type IsAllOptional<T> = RequiredKeys<T> extends never ? true : false
+
+type IsStrictlyEmpty<T> = T extends object ? (keyof T extends never ? true : false) : false

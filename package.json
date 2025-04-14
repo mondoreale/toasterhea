@@ -1,14 +1,14 @@
 {
   "name": "toasterhea",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Promise-driven toast poppin' library.",
-  "main": "index.js",
-  "types": "./index.d.ts",
-  "type": "module",
-  "exports": {
-    "import": "./index.js",
-    "require": "./index.cjs"
-  },
+  "main": "dist/index.cjs",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "prettier": "prettier --write src",
     "start": "rollup -c -w",
@@ -37,7 +37,6 @@
     "esbuild": "^0.17.14",
     "eslint": "^8.37.0",
     "eventemitter3": "^5.0.0",
-    "lodash": "^4.17.21",
     "prettier": "^2.8.7",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -48,8 +47,7 @@
   },
   "peerDependencies": {
     "eventemitter3": ">= 4",
-    "lodash": ">= 0.1.0",
-    "react": ">= 16.8 <= 18",
-    "react-dom": ">= 16.8 <= 18"
+    "react": ">= 16.8",
+    "react-dom": ">= 16.8"
   }
 }

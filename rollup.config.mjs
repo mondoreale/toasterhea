@@ -21,13 +21,13 @@ export default [
         ],
         output: [
             {
-                file: `./index.js`,
+                file: './dist/index.mjs',
                 format: 'es',
             },
             {
-                file: './index.cjs',
-                format: 'cjs'
-            }
+                file: './dist/index.cjs',
+                format: 'cjs',
+            },
         ],
     }),
     bundle({
@@ -35,7 +35,7 @@ export default [
         plugins: [dts()],
         output: [
             {
-                file: `./index.d.ts`,
+                file: './dist/index.d.ts',
                 format: 'es',
             },
         ],

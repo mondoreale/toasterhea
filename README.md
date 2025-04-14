@@ -1,175 +1,209 @@
 # toasterhea 🍞
 
-Promise-driven toast-poppin' library.
+Promises with UI.
+
+
+## About
+
+**toasterhea** lets you render React components as toast-like UI elements that behave like Promises.
+
+This makes it easy to implement async flows such as modals, confirmation dialogs, or multi-step wizards — all using your own components and styling.
+
+---
+
+## Why
+
+React doesn’t have a built-in way to tie UI directly to promise resolution. If you want something like:
+
+```ts
+const confirmed = await confirmDialog("Are you sure?")
+```
+
+...you’re left building your own state machine. `toasterhea` handles that for you, using components as promise interfaces.
+
+---
 
 ## Installation
 
 ```bash
-npm i toasterhea
+npm install toasterhea
 ```
 
-### Peer dependencies
+> Note: `react` and `eventemitter3` are required peer dependencies.
 
-This package relies on the following dependencies:
+---
 
-```
-eventemitter3 >= 4
-lodash >= 0.1.0
-react >= 16.8 <= 18
-react-dom >= 16.8 <= 18
-```
-
-Make sure you have them installed, too!
-
-## Key elements
-
-### `[Inline]Container(props: { id: string } & …): JSX.Element`
-
-It's a React component responsible for rendering toastables.
+## Example
 
 ```tsx
-import { Container, InlineContainer } from 'toasterhea'
+import { toaster, toastify } from 'toasterhea'
+
+// Step 1: Create a component that accepts resolve/reject
+function Confirm({ resolve }: { resolve: (value: boolean) => void }) {
+    return (
+        <div className="toast">
+            <p>Are you sure?</p>
+            <button
+                onClick={() => {
+                    resolve(true)
+                }}
+            >
+                Yes
+            </button>
+            <button
+                onClick={() => {
+                    resolve(false)
+                }}
+            >
+                Cancel
+            </button>
+        </div>
+    )
+}
+
+// Step 2: Wrap it with toastify
+const confirm = toastify(Confirm, toaster()).pop
+
+// Step 3: Use it like a promise. Anywhere!
+const result = await confirm()
+```
+
+---
+
+## Rendering
+
+Render the toast container in your app:
+
+```tsx
+const Foo = toaster()
 
 function App() {
-  return (
-    <>
-      {/* …codecodecode… */}
-      <Container id="FOO" />
-      <InlineContainer id="BAR" />
-      {/* …codecodecode… */}
-    </>
-  )
+    return (
+        <>
+            <Foo.Container />
+        </>
+    )
 }
 ```
 
-Regular containers are rendered at the end of `document.body` through React's portals. If you'd like to render yours in a specific place use `InlineContainer` instead.
-
-It may be worth mentioning that you can render multiple containers with the same id. As a result you'll get multiple instances of your toastables. I'm yet to find a good usecase for that, buy yeah, it's possible, even if just for fun.
-
-### `useDiscardableEffect(fn?: (discard: () => void | Promise<void>) => void): void`
-
-It's a React hook responsible for letting containers know when exacly a toastable can be discarded. Everything you turn into a toast will have to utilize this hook.
-
-Note that although the use of this hook is necessary, the callback is optional. If the callback isn't defined, the library will discard a toastable immediately after its promise is settled.
+The container supports `inline` rendering:
 
 ```tsx
-import { useDiscardableEffect } from 'toasterhea'
+<Foo.Container inline />
+```
 
-interface Props {
-  onResolve?: () => void
-}
+---
 
-function FooToThePowerOfBar({ onResolve }: Props) {
-  useDiscardableEffect((discard) => {
-    // Discard the component after 10s.
-    setTimeout(() => void discard(), 10000)
-  })
+## Toast Component Requirements
 
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        /**
-         * Calling `onResolve` resolves the underlying promise. The component will remain
-         * mounted for another 10s (see above). UIs can be disabled here, and/or
-         * animations triggered.
-         */
-        onResolve?.()
-      }}
-    >
-      Let's go!
-    </button>
-  )
+Your toastable component must:
+
+- Be a function component
+- Accept `resolve(value?)` and/or `reject(reason?)` props
+- Call one of them to settle
+
+Additional props can be passed through `.pop(props)`.
+
+```tsx
+function ExampleToast({
+    resolve,
+    reject,
+    name,
+}: {
+    resolve: (result: string) => void
+    reject: () => void
+    name: string
+}) {
+    /* ... */
 }
 ```
 
-### `toaster<T>(component: T, containerId: string): Toaster<T>`
+---
 
-It turns components into toastables and gives you two methods to control their behaviour:
-1. `async pop(props?: ComponentProps<T>)` – mounts or rerenders the component using given `props`, and
-2. `discard()` which rejects the internal promise.
+## API
 
-```js
-import { toaster, Toaster } from 'toasterhea'
+### `toaster()`
 
-function MasterOfAllFoos() {
-  const fooRef = useRef(toaster(FooToThePowerOfBar, "FOO"))
+Creates a new toaster instance.
 
-  return (
-    <>
-      <button
-        type="button"
-        onClick={async () => {
-          try {
-            await fooRef.current.pop()
-          } catch (e) {
-            /**
-             * `FooToThePowerOfBar` does not reject explicitly. There's no UI for it. Few
-             * things can cause a rejection, still, though. See `Reason` section for details.
-             */
-            console.warn('…and then this happened!', e)
-          }
-        }}
-      >
-        Let's foo that bar!
-      </button>
-      <button
-        type="button"
-        onClick={() => void fooRef.current.discard()}
-      >
-        Nah
-      </button>
-    </>
-  )
-}
+```ts
+const t = toaster()
 ```
 
-### `Reason`
+Returns:
 
-Some rejection scenarios are predefined and either are used internally or can be used from the outside to control the flow.
+- `Container`: React component to render active toasts
+- `set()`: (internal) programmatically control state
+- `dispose()`: (internal) begin async cleanup
+- `on()`, `off()`: listen to update events
+- `hasActive(component?)`: check if any toast is active
 
-#### `Reason.Update`
+---
 
-Happens when the user calls `pop` on a toast that's already "popped" (got displayed). Any piece of code waiting for the previous call to `pop` will receive a rejection.
+### `toastify(component, toaster)`
 
-#### `Reason.Unmount`
+Wraps a component and returns `{ pop, discard }`:
 
-Happens when the `Container` itself gets unmounted. The library rejects all outstanding promises and removes their associated DOM elements.
+- `pop(props?)`: shows the component and returns a promise
+- `discard()`: programmatically cancel the toast
 
-#### `Reason.Host`
+The props passed to `pop()` will be merged with `{ resolve, reject }`.
 
-Happens when `Toaster<T>.discard()` is called.
+---
 
-An example of how you can utilize them is shown below.
+### `useDisposeEffect`
 
-```js
-import { Reason } from 'toasterhea'
+Allows components to delay disposal for animation or async work:
+
+```tsx
+useDisposeEffect((finish) => {
+    animateOut().then(finish)
+})
+```
+
+Must call `finish()` when done.
+
+---
+
+### `ToastCancelled`
+
+An error class representing user cancellation. Useful for flow control.
+
+```ts
+import { isToastCancelled } from 'toasterhea'
 
 try {
-  // pop!
+    await toast.pop()
 } catch (e) {
-  switch (e) {
-    case Reason.Update:
-      console.info('Your toastable got updated!')
-      break
-    case Reason.Unmount:
-      console.info('Your toastable got unmounted along with the entire `Container`.')
-      break
-    case Reason.Host:
-      console.info('Your toastable got interrupted from the outside (someone called its `discard`).')
-      break
-    default:
-      throw e
-  }
+    if (isToastCancelled(e)) {
+        // user cancelled
+    }
 }
 ```
 
-And, naturally, you can define and use your own rejection reasons.
+---
 
-## Examples
+## Wizard Pattern Example
 
-### Toast
+Chain multiple steps:
 
-### Alert
+```tsx
+const { pop: getName } = toastify(NameStep, t)
+const { pop: getAvatar } = toastify(AvatarStep, t)
 
-### Modal dialog
+try {
+    const name = await getName()
+    const avatar = await getAvatar()
+    // done
+} catch (e) {
+    if (isToastCancelled(e)) {
+        // user bailed
+    }
+}
+```
+
+---
+
+## License
+
+MIT. Use responsibly. Don’t forget to resolve your promises.
