@@ -29,6 +29,8 @@ const confirmed = await confirmDialog("Are you sure?")
 npm install toasterhea
 ```
 
+> Note: `react` and `eventemitter3` are required peer dependencies.
+
 ---
 
 ## Example
