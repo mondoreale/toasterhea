@@ -2,7 +2,6 @@
 
 Promises with UI.
 
-
 ## About
 
 **toasterhea** lets you render React components as toast-like UI elements that behave like Promises.
@@ -16,7 +15,7 @@ This makes it easy to implement async flows such as modals, confirmation dialogs
 React doesn’t have a built-in way to tie UI directly to promise resolution. If you want something like:
 
 ```ts
-const confirmed = await confirmDialog("Are you sure?")
+const confirmed = await confirmDialog('Are you sure?')
 ```
 
 ...you’re left building your own state machine. `toasterhea` handles that for you, using components as promise interfaces.
@@ -36,33 +35,23 @@ npm install toasterhea
 ## Example
 
 ```tsx
-import { toaster, toastify } from 'toasterhea'
+import { toaster } from 'toasterhea'
+
+const Foo = toaster()
 
 // Step 1: Create a component that accepts resolve/reject
 function Confirm({ resolve }: { resolve: (value: boolean) => void }) {
     return (
         <div className="toast">
             <p>Are you sure?</p>
-            <button
-                onClick={() => {
-                    resolve(true)
-                }}
-            >
-                Yes
-            </button>
-            <button
-                onClick={() => {
-                    resolve(false)
-                }}
-            >
-                Cancel
-            </button>
+            <button onClick={() => resolve(true)}>Yes</button>
+            <button onClick={() => resolve(false)}>Cancel</button>
         </div>
     )
 }
 
-// Step 2: Wrap it with toastify
-const confirm = toastify(Confirm, toaster()).pop
+// Step 2: Wrap it with create
+const confirm = Foo.create(Confirm).pop
 
 // Step 3: Use it like a promise. Anywhere!
 const result = await confirm()
@@ -75,8 +64,6 @@ const result = await confirm()
 Render the toast container in your app:
 
 ```tsx
-const Foo = toaster()
-
 function App() {
     return (
         <>
@@ -98,9 +85,9 @@ The container supports `inline` rendering:
 
 Your toastable component must:
 
-- Be a function component
-- Accept `resolve(value?)` and/or `reject(reason?)` props
-- Call one of them to settle
+-   Be a function component
+-   Accept `resolve(value?)` and/or `reject(reason?)` props
+-   Call one of them to settle
 
 Additional props can be passed through `.pop(props)`.
 
@@ -132,20 +119,19 @@ const t = toaster()
 
 Returns:
 
-- `Container`: React component to render active toasts
-- `set()`: (internal) programmatically control state
-- `dispose()`: (internal) begin async cleanup
-- `on()`, `off()`: listen to update events
-- `hasActive(component?)`: check if any toast is active
+-   `Container`: React component to render active toasts
+-   `create(component)`: wraps a component into `{ pop, discard }`
+-   `hasActive(component?)`: check if any toast is active
+-   `on()`, `off()`: subscribe to update events
 
 ---
 
-### `toastify(component, toaster)`
+### `.create(component)`
 
 Wraps a component and returns `{ pop, discard }`:
 
-- `pop(props?)`: shows the component and returns a promise
-- `discard()`: programmatically cancel the toast
+-   `pop(props?)`: shows the component and returns a promise
+-   `discard()`: programmatically cancel the toast
 
 The props passed to `pop()` will be merged with `{ resolve, reject }`.
 
@@ -170,12 +156,12 @@ Must call `finish()` when done.
 An error class representing user cancellation. Useful for flow control.
 
 ```ts
-import { isToastCancelled } from 'toasterhea'
+import { isCancelledByHost } from 'toasterhea'
 
 try {
     await toast.pop()
 } catch (e) {
-    if (isToastCancelled(e)) {
+    if (isCancelledByHost(e)) {
         // user cancelled
     }
 }
@@ -188,15 +174,15 @@ try {
 Chain multiple steps:
 
 ```tsx
-const { pop: getName } = toastify(NameStep, t)
-const { pop: getAvatar } = toastify(AvatarStep, t)
+const confirmName = Foo.create(NameStep)
+const confirmAvatar = Foo.create(AvatarStep)
 
 try {
-    const name = await getName()
-    const avatar = await getAvatar()
+    const name = await confirmName.pop()
+    const avatar = await confirmAvatar.pop()
     // done
 } catch (e) {
-    if (isToastCancelled(e)) {
+    if (isCancelledByHost(e)) {
         // user bailed
     }
 }
