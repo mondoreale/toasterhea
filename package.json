@@ -5,6 +5,14 @@
   "main": "dist/index.cjs",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mondoreale/toasterhea.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mondoreale/toasterhea/issues"
+  },
+  "homepage": "https://github.com/mondoreale/toasterhea#readme",
   "files": [
     "dist",
     "README.md"
